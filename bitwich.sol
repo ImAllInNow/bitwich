@@ -4,6 +4,11 @@ import "./Pausable.sol";
 import "./SafeERC20.sol";
 import "./SafeMath.sol";
 
+contract NamedToken is ERC20 {
+   string public name;
+   string public symbol;
+}
+
 contract BitWich is Pausable {
     using SafeMath for uint;
     using SafeERC20 for ERC20;
@@ -12,35 +17,38 @@ contract BitWich is Pausable {
     event LogSold(address indexed seller, uint sellValue, uint amount);
     event LogPriceChanged(uint newBuyCost, uint newSellValue);
 
-    // Name of the token on which this bitwich contract operates
-    string public erc20TokenName;
-
     // ERC20 contract to operate over
     ERC20 public erc20Contract;
 
     // amount bought - amount sold = amount willing to buy from others
     uint public netAmountBought;
 
-    // number of tokens that can be bought from contract per wei
+    // number of tokens that can be bought from contract per wei sent
     uint public buyCost;
 
-    // number of tokens that can be sold to contract per wei
+    // number of tokens that can be sold to contract per wei received
     uint public sellValue;
 
     constructor(uint _buyCost,
                 uint _sellValue,
-                string _tokenName,
                 address _erc20ContractAddress) public {
         require(_buyCost > 0);
         require(_sellValue > 0);
 
         buyCost = _buyCost;
         sellValue = _sellValue;
-        erc20TokenName = _tokenName;
-        erc20Contract = ERC20(_erc20ContractAddress);
+        erc20Contract = NamedToken(_erc20ContractAddress);
     }
 
     /* ACCESSORS */
+    function tokenName() external view returns (string) {
+        return NamedToken(erc20Contract).name();
+    }
+
+    function tokenSymbol() external view returns (string) {
+        return NamedToken(erc20Contract).symbol();
+    }
+
     function amountForSale() external view returns (uint) {
         return erc20Contract.balanceOf(address(this));
     }
@@ -48,7 +56,7 @@ contract BitWich is Pausable {
     // Accessor for the cost in wei of buying a certain amount of tokens.
     function getBuyCost(uint _amount) external view returns(uint) {
         uint cost = _amount.div(buyCost);
-        if (cost > 0 && cost % 10 != 0) {
+        if (_amount % buyCost != 0) {
             cost = cost.add(1); // Handles truncating error for odd buyCosts
         }
         return cost;
@@ -116,7 +124,7 @@ contract BitWich is Pausable {
     function cashout() external onlyOwner {
         uint requiredBalance = netAmountBought.div(sellValue);
 
-        // safe math handles case where requiredBalance > this.balance
+        // NOTE: safe math handles case where requiredBalance > this.balance
         owner.transfer(address(this).balance.sub(requiredBalance));
     }
 
@@ -128,12 +136,12 @@ contract BitWich is Pausable {
 
     // Owner accessor to get how much ETH is needed to send
     // in order to change sell price to proposed price
-    function extraBalanceNeeded(uint _propsedSellValue) external view onlyOwner returns (uint) {
-        uint requiredBalance = netAmountBought.div(_propsedSellValue);
+    function extraBalanceNeeded(uint _proposedSellValue) external view onlyOwner returns (uint) {
+        uint requiredBalance = netAmountBought.div(_proposedSellValue);
         return (requiredBalance > address(this).balance) ? requiredBalance.sub(address(this).balance) : 0;
     }
 
-    // Owner function for adjusting prices (need to add ETH if raising sell price)
+    // Owner function for adjusting prices (might need to add ETH if raising sell price)
     function adjustPrices(uint _buyCost, uint _sellValue) external payable onlyOwner whenPaused {
         buyCost = _buyCost == 0 ? buyCost : _buyCost;
         sellValue = _sellValue == 0 ? sellValue : _sellValue;
@@ -147,8 +155,8 @@ contract BitWich is Pausable {
     // Owner can transfer out any accidentally sent ERC20 tokens
     // excluding the token intended for this contract
     function transferAnyERC20Token(address _address, uint _tokens) external onlyOwner {
-        if (_address != address(erc20Contract)) {
-            ERC20(_address).safeTransfer(owner, _tokens);
-        }
+        require(_address != address(erc20Contract));
+
+        ERC20(_address).safeTransfer(owner, _tokens);
     }
 }
