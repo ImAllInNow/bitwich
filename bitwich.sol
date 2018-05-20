@@ -47,7 +47,11 @@ contract BitWich is Pausable {
 
     // Accessor for the cost in wei of buying a certain amount of tokens.
     function getBuyCost(uint _amount) external view returns(uint) {
-        return _amount.div(buyCost);
+        uint cost = _amount.div(buyCost);
+        if (cost > 0 && cost % 10 != 0) {
+            cost = cost.sub(1);
+        }
+        return cost;
     }
 
     // Accessor for the value in wei of selling a certain amount of tokens.
@@ -72,7 +76,6 @@ contract BitWich is Pausable {
     function sell(uint _amount) external whenNotPaused {
         processSell(msg.sender, _amount);
     }
-
 
     /* INTERNAL FUNCTIONS */
     function processBuy(address _buyer, uint _amount) internal {
