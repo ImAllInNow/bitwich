@@ -110,21 +110,20 @@ contract BitWich is Pausable {
 
     // NOTE: this should never return true unless this contract has a bug
     function lacksFunds() external view returns(bool) {
-        return address(this).balance < netAmountBought.div(sellValue);
+        return address(this).balance < getRequiredBalance(sellValue);
     }
 
     /* OWNER FUNCTIONS */
     // Owner function to check how much extra ETH is available to cash out
     function amountAvailableToCashout() external view onlyOwner returns (uint) {
-        uint requiredBalance = netAmountBought.div(sellValue);
-        return address(this).balance.sub(requiredBalance);
+        return address(this).balance.sub(getRequiredBalance(sellValue));
     }
 
     // Owner function for cashing out extra ETH not needed for buying tokens
     function cashout() external onlyOwner {
-        uint requiredBalance = netAmountBought.div(sellValue);
+        uint requiredBalance = getRequiredBalance(sellValue);
+        assert(address(this).balance >= requiredBalance);
 
-        // NOTE: safe math handles case where requiredBalance > this.balance
         owner.transfer(address(this).balance.sub(requiredBalance));
     }
 
@@ -137,7 +136,7 @@ contract BitWich is Pausable {
     // Owner accessor to get how much ETH is needed to send
     // in order to change sell price to proposed price
     function extraBalanceNeeded(uint _proposedSellValue) external view onlyOwner returns (uint) {
-        uint requiredBalance = netAmountBought.div(_proposedSellValue);
+        uint requiredBalance = getRequiredBalance(_proposedSellValue);
         return (requiredBalance > address(this).balance) ? requiredBalance.sub(address(this).balance) : 0;
     }
 
@@ -146,10 +145,14 @@ contract BitWich is Pausable {
         buyCost = _buyCost == 0 ? buyCost : _buyCost;
         sellValue = _sellValue == 0 ? sellValue : _sellValue;
 
-        uint requiredBalance = netAmountBought.div(sellValue);
+        uint requiredBalance = getRequiredBalance(sellValue);
         require(msg.value.add(address(this).balance) >= requiredBalance);
 
         emit LogPriceChanged(buyCost, sellValue);
+    }
+
+    function getRequiredBalance(uint _proposedSellValue) internal view returns (uint) {
+        return netAmountBought.div(_proposedSellValue).add(1);
     }
 
     // Owner can transfer out any accidentally sent ERC20 tokens
