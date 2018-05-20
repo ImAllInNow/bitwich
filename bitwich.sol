@@ -49,7 +49,7 @@ contract BitWich is Pausable {
     function getBuyCost(uint _amount) external view returns(uint) {
         uint cost = _amount.div(buyCost);
         if (cost > 0 && cost % 10 != 0) {
-            cost = cost.sub(1);
+            cost = cost.add(1); // Handles truncating error for odd buyCosts
         }
         return cost;
     }
@@ -61,48 +61,48 @@ contract BitWich is Pausable {
 
     /* PUBLIC FUNCTIONS */
     // Perform the buy of tokens for ETH and add to the net amount bought
-    function buy(uint _amount) external payable whenNotPaused {
-        processBuy(msg.sender, _amount);
-    }
-
-    // handle ETH directly sent to this contract
-    function () external payable whenNotPaused {
-        processBuy(msg.sender, msg.value.mul(buyCost));
+    function buy(uint _minAmountDesired) external payable whenNotPaused {
+        processBuy(msg.sender, _minAmountDesired);
     }
 
     // Perform the sell of tokens, send ETH to the seller, and reduce the net amount bought
     // NOTE: seller must call ERC20.approve() first before calling this,
-    //       unless they can use approveAndCall()
-    function sell(uint _amount) external whenNotPaused {
-        processSell(msg.sender, _amount);
+    //       unless they can use ERC20.approveAndCall() directly
+    function sell(uint _amount, uint _weiExpected) external whenNotPaused {
+        processSell(msg.sender, _amount, _weiExpected);
     }
 
     /* INTERNAL FUNCTIONS */
-    function processBuy(address _buyer, uint _amount) internal {
-        require(erc20Contract.balanceOf(address(this)) >= _amount);
-        uint cost = _amount.div(buyCost); // tokens divided by (tokens per wei) equals wei
-        require(msg.value >= cost);
+    // NOTE: _minAmountDesired protects against cost increase between send time and process time
+    function processBuy(address _buyer, uint _minAmountDesired) internal {
+        uint amountPurchased = msg.value.mul(buyCost);
+        require(erc20Contract.balanceOf(address(this)) >= amountPurchased);
+        require(amountPurchased >= _minAmountDesired);
 
-        netAmountBought = netAmountBought.add(_amount);
-        emit LogBought(_buyer, cost, _amount);
+        netAmountBought = netAmountBought.add(amountPurchased);
+        emit LogBought(_buyer, buyCost, amountPurchased);
 
-        erc20Contract.safeTransfer(_buyer, _amount);
-
-        // transfer back excess if there is any
-        _buyer.transfer(msg.value.sub(cost));
+        erc20Contract.safeTransfer(_buyer, amountPurchased);
     }
 
-    function processSell(address _seller, uint _amount) internal {
+    // NOTE: _weiExpected protects against a value decrease between send time and process time
+    function processSell(address _seller, uint _amount, uint _weiExpected) internal {
         require(netAmountBought >= _amount);
         require(erc20Contract.allowance(_seller, address(this)) >= _amount);
-        uint value = _amount.div(sellValue);  // tokens divided by (tokens per wei) equals wei
-        require(address(this).balance >= value);
+        uint value = _amount.div(sellValue); // tokens divided by (tokens per wei) equals wei
+        require(value >= _weiExpected);
+        assert(address(this).balance >= value); // contract should always have enough wei
 
         netAmountBought = netAmountBought.sub(_amount);
-        emit LogSold(_seller, value, _amount);
+        emit LogSold(_seller, sellValue, _amount);
 
         erc20Contract.safeTransferFrom(_seller, address(this), _amount);
         _seller.transfer(value);
+    }
+
+    // NOTE: this should never return true unless this contract has a bug
+    function lacksFunds() external view returns(bool) {
+        return address(this).balance < netAmountBought.div(sellValue);
     }
 
     /* OWNER FUNCTIONS */
@@ -139,7 +139,7 @@ contract BitWich is Pausable {
         sellValue = _sellValue == 0 ? sellValue : _sellValue;
 
         uint requiredBalance = netAmountBought.div(sellValue);
-        require(msg.value.add(address(this).balance) > requiredBalance);
+        require(msg.value.add(address(this).balance) >= requiredBalance);
 
         emit LogPriceChanged(buyCost, sellValue);
     }
