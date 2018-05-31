@@ -100,6 +100,7 @@ contract BitWich is Pausable {
         uint value = _amount.div(sellValue); // tokens divided by (tokens per wei) equals wei
         require(value >= _weiExpected);
         assert(address(this).balance >= value); // contract should always have enough wei
+        _amount = value.mul(sellValue); // in case of rounding down, reduce the _amount sold
 
         netAmountBought = netAmountBought.sub(_amount);
         emit LogSold(_seller, sellValue, _amount);
